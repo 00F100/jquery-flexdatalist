@@ -3,7 +3,7 @@
  * Autocomplete input fields, with support for datalists.
  *
  * Version:
- * 2.1.3.5
+ * 2.2.4
  *
  * Depends:
  * jquery.js > 1.8.3
@@ -28,10 +28,11 @@ jQuery.fn.flexdatalist = function (_option, _value) {
 
             if ($aliascontainer) {
                 $this.removeClass('flexdatalist-set')
-                    .attr('type', 'text')
+                    .attr({'style': null, 'tabindex': null})
                     .val((options && options.originalValue && !clear ? options.originalValue : ''))
                     .removeData('flexdatalist')
-                    .removeData('aliascontainer');
+                    .removeData('aliascontainer')
+                    .off();
                 $aliascontainer.remove();
             }
         });
@@ -134,7 +135,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
         var $this = $(this),
             _this = this,
             _searchTimeout = null,
-            _values = [],
+            _selectedValues = [], 
             fid = 'flex' + id,
             $alias = null,
             $multiple = null;
@@ -172,6 +173,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                 _this.action.showAllResults(event);
                 _this.action.clearValue(event);
                 _this.action.removeResults(event);
+                _this.action.inputWidth(event);
             })
             // Focusout
             .on('focusout', function (event) {
@@ -185,7 +187,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
             window.onresize = function (event) {
                 _this.position();
             };
-            
+
             // Run garbage collector
             this.cache.gc();
 
@@ -258,25 +260,33 @@ jQuery.fn.flexdatalist = function (_option, _value) {
             copyValue: function (event) {
                 if (_this.keyNum(event) !== 13) {
                     var keyword = $alias.val(),
+                        val = _this.fvalue.get(true),
                         options = _this.options.get();
-                    if (!options.multiple && !options.selectionRequired) {
+                    if (!options.multiple && !options.selectionRequired && keyword.length !== val.length) {
                         _this.fvalue.extract(keyword);
                     }
                 }
             },
         /**
-         * Check if keypress is valid.
+         * Remove value on backspace key (multiple input only).
          */
             backSpaceKeyRemove: function (event) {
                 var options = _this.options.get();
-                if (options.removeOnBackspace) {
+                if (options.removeOnBackspace && options.multiple) {
                     var val = $alias.val(),
                         $remove = $alias.data('_remove');
-                    if ($remove) {
-                        _this.fvalue.remove($remove);
-                        $alias.data('_remove', null);
-                    } else if (val.length === 0 && options.multiple && _this.keyNum(event) === 8) {
-                        $alias.data('_remove', $alias.parents('li:eq(0)').prev());
+                    if (_this.keyNum(event) === 8) {
+                        if (val.length === 0) {
+                            if ($remove) {
+                                _this.fvalue.remove($remove);
+                                $alias.data('_remove', null);
+                            } else {
+                                console.log('remove!');
+                                $alias.data('_remove', $alias.parents('li:eq(0)').prev());
+                            }
+                        } else {
+                            $alias.data('_remove', null);
+                        }
                     }
                 }
             },
@@ -290,6 +300,23 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                     _this.data.load(function (data) {
                         _this.results.show(data);
                     });
+                }
+            },
+        /**
+         * Calculate input width by number of characters.
+         */
+            inputWidth: function (event) {
+                var options = _this.options.get();
+                if (options.multiple) {
+                    var keyword = $alias.val(),
+                        fontSize = parseInt($alias.css('fontSize').replace('px', '')),
+                        minWidth = 40,
+                        maxWidth = $this.innerWidth(),
+                        width = ((keyword.length + 1) * fontSize);
+
+                    if (width >= minWidth && width <= maxWidth) {
+                        $alias[0].style.width = width + 'px';
+                    }
                 }
             },
         /**
@@ -310,8 +337,8 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                 var val = _this.fvalue.get(),
                     keyword = $alias.val(),
                     options = _this.options.get();
-                
-                if (!options.multiple && keyword.length <= options.minLength) {
+
+                if (!options.multiple && options.selectionRequired && keyword.length <= options.minLength) {
                     _this.fvalue.clear();
                 }
             },
@@ -343,29 +370,38 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                     $alias.insertAfter($this);
                 }
                 // Respect autofocus attribute
-                if ($alias.attr('autofocus')) {
+                if ($this.attr('autofocus')) {
                     $alias.focus();
                 }
-                $this.data('aliascontainer', ($multiple ? $multiple : $alias));
+
+                $this.data('aliascontainer', ($multiple ? $multiple : $alias)).addClass('flexdatalist flexdatalist-set').css({
+                    'position': 'absolute',
+                    'top': -14000,
+                    'left': -14000
+                }).attr('tabindex', -1);
+
+                // update input label with alias id
+                var inputId = $this.attr('id'),
+                    aliasId = $alias.attr('id');
+                $('label[for="' + inputId + '"]').attr('for', aliasId);
+
                 this.chained();
             },
         /**
          * Single value input.
          */
             alias: function () {
-                var id = ($this.attr('id') ? $this.attr('id') + '-flexdatalist' : fid);
-                var $alias = $this
-                    .clone(false)
+                var aliasid = ($this.attr('id') ? $this.attr('id') + '-flexdatalist' : fid);
+                var $alias = $('<input type="text">')
                     .attr({
-                        'list': null,
+                        'class': $this.attr('class'),
                         'name': ($this.attr('name') ? 'flexdatalist-' + $this.attr('name') : null),
-                        'id': id,
-                        'value': ''
+                        'id': aliasid,
+                        'placeholder': $this.attr('placeholder')
                     })
-                    .addClass('flexdatalist-alias ' + id)
+                    .addClass('flexdatalist-alias ' + aliasid)
                     .removeClass('flexdatalist')
                     .attr('autocomplete', 'off');
-                $this.addClass('flexdatalist flexdatalist-set').prop('type', 'hidden');
                 return $alias;
             },
         /**
@@ -373,7 +409,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
          */
             multipleInput: function ($alias) {
                 $multiple = $('<ul tabindex="1">')
-                    .addClass('flexdatalist-multiple ' + id)
+                    .addClass('flexdatalist-multiple ' + fid)
                     .css({
                         'border-color': $this.css('border-left-color'),
                         'border-width': $this.css('border-left-width'),
@@ -388,6 +424,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                     .addClass('flexdatalist-multiple-value')
                     .append($alias)
                     .appendTo($multiple);
+
                 return $multiple;
             },
         /**
@@ -499,12 +536,15 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                     _val = this.get(true);
 
                 callback = (callback ? callback : $.noop);
+
                 // If nothing changes, return
                 if (_values.length == 0 && _val.length == 0) {
                     callback(values);
                     return;
                 }
+
                 values = this.toObj(values);
+
                 if (!_this.isEmpty(values) && !_this.isEmpty(valueProp) && valueProp !== '*') {
                     if (!_this.isObject(valueProp)) {
                         valueProp = valueProp.split(',');
@@ -577,11 +617,12 @@ jQuery.fn.flexdatalist = function (_option, _value) {
 
                 if (options.multiple) {
                     // For allowDuplicateValues
-                    if (!_this.isEmpty(txt)) {
-                        if (_this.isDup(txt)) {
+                    if (!_this.isEmpty(value)) {
+                        if (_this.isDup(value)) {
                             return;
                         }
-                        _values.push(txt);
+
+                        _selectedValues.push(value);
                         this.multiple.add(value, txt);
                     }
                 } else {
@@ -615,7 +656,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                         _multiple.toggle($(this));
                     // Remove
                     }).find('.fdl-remove').click(function () {
-                        _multiple.remove($(this).parent());
+                        _this.fvalue.remove($(this).parent());
                     });
 
                     this.push(val);
@@ -649,7 +690,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                             args = [{value: data.value, text: data.text, action: action}, options];
 
                         $this.trigger('before:flexdatalist.toggle', args);
-                        
+
                         if (action === 'enable') {
                             var value = $li.data('value');
                             current.splice(index, 0, value);
@@ -687,7 +728,8 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                         _this.fvalue.multiple.checkLimit();
 
                         // For allowDuplicateValues
-                        _values.splice(index, 1);
+                        _selectedValues.splice(index, 1);
+
                         return arg;
                     }
                 },
@@ -700,7 +742,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                     $this.trigger('before:flexdatalist.remove.all', [values, options]);
                     $multiple.find('li:not(.input-container)').remove();
                     _this.value = '';
-                    _values = [];
+                    _selectedValues = [];
                     $this.trigger('after:flexdatalist.remove.all', [values, options]);
                 },
             /**
@@ -725,7 +767,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                     var limit = _this.options.get('limitOfValues');
                     if (limit > 0) {
                         var $input = $multiple.find('li.input-container'),
-                            count = _values.length;
+                            count = _selectedValues.length;
                         (limit == count ? $input.hide() : $input.show());
                     }
                 },
@@ -762,6 +804,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                 var value = item,
                     options = _this.options.get(),
                     valueProperty = options.valueProperty;
+
                 if (_this.isObject(item)) {
                     if (this.isJSON() || this.isMixed()) {
                         delete item.name_highlight;
@@ -783,6 +826,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                     } else {
                         value = null;
                     }
+
                 }
                 return value;
             },
@@ -849,7 +893,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                 if (alias) {
                     $alias[0].value = '';
                 }
-                _values = [];
+                _selectedValues = [];
                 return this;
             },
         /**
@@ -1074,7 +1118,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                 }
                 $this.addClass('flexdatalist-loading');
                 if (options.requestContentType === 'json') {
-                    settings.data = JSON.stringify(data);
+                    settings.data = JSON.stringify(settings.data);
                 }
                 $.ajax($.extend(
                     {
@@ -1373,10 +1417,10 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                 var $li = $('<li>').data('item', item).addClass('item'),
                     options = _this.options.get(),
                     visibleProperties = options.visibleProperties;
-                    
+
                 for (var index = 0; index < visibleProperties.length; index++) {
                     var visibleProperty = visibleProperties[index];
-                    
+
                     if (visibleProperty.indexOf('{') > -1) {
                         var str = _this.fvalue.placeholders.replace(item, visibleProperty),
                             parsed = _this.fvalue.placeholders.parse(visibleProperty);
@@ -1401,7 +1445,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                                 .html(propertyText + ' ');
                         }
                     }
-                    
+
                     $item.appendTo($li);
                 }
                 return $li;
@@ -1469,6 +1513,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
                 if (itemsOnly) {
                     selector = 'ul.flexdatalist-results li';
                 }
+                $this.trigger('remove:flexdatalist.results');
                 $(selector).remove();
                 $this.trigger('removed:flexdatalist.results');
             }
@@ -1702,7 +1747,7 @@ jQuery.fn.flexdatalist = function (_option, _value) {
      */
         this.isDup = function (val) {
             if (!this.options.get('allowDuplicateValues')) {
-                return _values.length > 0 && _values.indexOf(this.fvalue.text(val)) > -1;
+                return _selectedValues.length > 0 && _selectedValues.indexOf(this.fvalue.value(val)) > -1;
             }
             return false;
         }
@@ -1874,7 +1919,7 @@ jQuery(function ($) {
         }).data('flexdatalist', true);
     }
 
-    jQuery('input.flexdatalist:not(.flexdatalist-set)').flexdatalist();
+    jQuery('input.flexdatalist:not(.flexdatalist-set):not(.autodiscover-disabled)').flexdatalist();
 });
 
 (function ($) {
